@@ -124,6 +124,35 @@ def remove_github_duplicates():
                 dissue.edit(title='-', state='closed')
 
 
+def sync_milestones():
+    repo = github.repository(config['github']['user'], config['github']['repo'])
+    ghmilestones = dict((m.title, m.number) for m in repo.iter_milestones())
+    boards = green.boards()
+    open_sprints = []
+    for board in boards:
+        sprints = green.sprints(board.id)
+        for sprint in sprints:
+            if sprint.state == 'ACTIVE':
+                open_sprints.append(sprint)
+    for sprint in open_sprints:
+        if sprint.name not in ghmilestones:
+            milestone = repo.create_milestone(sprint.name)
+            ghmilestones[milestone.title] = milestone.number
+            print "Creating milestone: ", sprint.name
+    for board in boards:
+        sprints = green.sprints(board.id)
+        for sprint in sprints:
+            if sprint.state == 'ACTIVE':
+                issues = green.incompleted_issues(board.id, sprint.id)
+                for jissue_key in issues:
+                    ghissue = github_issues_by_jira_key.get(str(jissue_key))
+                    if ghissue:
+                        ghissue.edit(milestone=ghmilestones[sprint.name])
+
+#     print board, sprints
+
+
+sync_milestones()
 #remove_github_duplicates()
 #sync_issues()
 #sync_bodies_from_jira()
