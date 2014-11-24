@@ -3,6 +3,7 @@ import github3
 from jira.client import JIRA
 from jira.client import GreenHopper
 import json
+from collections import defaultdict
 
 config = json.load(open("config.json"))
 
@@ -110,6 +111,20 @@ def sync_comments_from_jira():
                         print body
                         ghissue.create_comment(body)
 
+
+def remove_github_duplicates():
+    issue_by_title = defaultdict(list)
+    for ghissue in github_issues:
+        issue_by_title[ghissue.title].append(ghissue)
+
+    for title, issue_list in issue_by_title.iteritems():
+        if (len(issue_list) > 1):
+            to_delete = issue_list[1:]
+            for dissue in to_delete:
+                dissue.edit(title='-', state='closed')
+
+
+#remove_github_duplicates()
 #sync_issues()
 #sync_bodies_from_jira()
 #sync_comments_from_jira()
