@@ -13,11 +13,11 @@ jira_prefix = config['jira']['prefix']
 jira = JIRA(options=options, basic_auth=(config['jira']['username'], config['jira']['password']))
 green = GreenHopper(options=options, basic_auth=(config['jira']['username'], config['jira']['password']))
 
-boards = green.boards()
+# boards = green.boards()
 
-for board in boards:
-    sprints = green.sprints(board.id)
-    print board, sprints
+# for board in boards:
+#     sprints = green.sprints(board.id)
+#     print board, sprints
 
 
 jira_issues = jira.search_issues('project=AH AND status != Closed', maxResults=False)
@@ -25,11 +25,21 @@ jira_issues_by_key = dict((i.key, i) for i in jira_issues)
 
 github = github3.login(config['github']['auth']['username'], config['github']['auth']['password'])
 github_issues = [result.issue for result in github.search_issues("repo:activityhero/kidzexcel state:open")]
+github_issues_by_jira_key = {}
+for ghissue in github_issues:
+    if ghissue.title.startswith(jira_prefix + '-'):
+        key = ghissue.title.split(":")[0]
+        github_issues_by_jira_key[key] = ghissue
+
 
 def jira_from_github_issue(ghissue):
     if ghissue.title.startswith(jira_prefix + '-'):
         key = ghissue.title.split(":")[0]
         return jira_issues_by_key.get(key)
+
+
+def github_from_jira_issue(jissue):
+    github_issues_by_jira_key.get(jissue.key)
 
 
 def jira_to_github_author_tag(jira_user):
@@ -39,17 +49,52 @@ def jira_to_github_author_tag(jira_user):
     else:
         return "jira: " + jira_user
 
+
+def body_from_jira_issue(jissue):
+    body = "%s/browse/%s" % (config['jira']['url'], jissue.key)
+    body += "\nCreated by: %s" % jira_to_github_author_tag(jissue.fields.reporter.name)
+    body += "\nReported on: %s" % jissue.fields.created
+    if jissue.fields.description:
+        body += "\n\n" + jissue.fields.description.replace("\r\n", "\n")
+    return body
+
+
+def sync_issues():
+    for jissue in jira_issues:
+        ghissue = github_from_jira_issue(jissue)
+        if not ghissue:
+            title = "%s: %s" % (jissue.key, jissue.fields.summary)
+            labels = []
+            if jissue.fields.issuetype:
+                labels.append(jissue.fields.issuetype.name)
+            if jissue.fields.priority:
+                labels.append(jissue.fields.priority.name)
+            for c in jissue.fields.components:
+                labels.append(c.name)
+            for l in jissue.fields.labels:
+                labels.append(l)
+            body = body_from_jira_issue(jissue)
+            assignee = None
+            if jissue.fields.assignee:
+                assignee = config['userMapping'].get(jissue.fields.assignee.name)
+            kwargs = {
+                'labels': labels,
+                'body': body,
+                'assignee': assignee,
+                'title': title,
+            }
+            print "creating", kwargs
+            github.create_issue(config['github']['user'], config['github']['repo'], **kwargs)
+
+
 def sync_bodies_from_jira():
     for ghissue in github_issues:
         if len(ghissue.body_html) == 0:
             jissue = jira_from_github_issue(ghissue)
             if jissue is not None:
-                body = "%s/browse/%s" % (config['jira']['url'], jissue.key)
-                body += "\nCreated by: %s" % jira_to_github_author_tag(jissue.fields.reporter.name)
-                body += "\nReported on: %s" % jissue.fields.created
-                if jissue.fields.description:
-                    body += "\n\n" + jissue.fields.description.replace("\r\n", "\n")
+                body = body_from_jira_issue(jissue)
                 ghissue.edit(body=body)
+
 
 def sync_comments_from_jira():
     for ghissue in github_issues:
@@ -65,5 +110,6 @@ def sync_comments_from_jira():
                         print body
                         ghissue.create_comment(body)
 
+#sync_issues()
 #sync_bodies_from_jira()
-sync_comments_from_jira()
+#sync_comments_from_jira()
